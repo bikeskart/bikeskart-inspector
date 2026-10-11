@@ -1,67 +1,85 @@
 package com.bikeskart.inspector;
 
+import android.Manifest;
 import android.app.Activity;
+import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.os.Bundle;
-import android.graphics.Color;
-import android.view.Gravity;
+import android.webkit.*;
 import android.view.View;
-import android.widget.*;
-import org.json.JSONObject;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.io.OutputStream;
-import java.nio.charset.StandardCharsets;
+import android.widget.Toast;
+import android.net.Uri;
+import android.webkit.GeolocationPermissions;
+import android.webkit.PermissionRequest;
 
 public class MainActivity extends Activity {
- private LinearLayout root;
- private String token;
- @Override public void onCreate(Bundle state){super.onCreate(state);showLogin();}
- private void base(String heading){
-  root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(40,64,40,32);root.setBackgroundColor(Color.WHITE);
-  TextView title=new TextView(this);title.setText(heading);title.setTextSize(25);title.setTextColor(Color.rgb(18,48,73));root.addView(title);
-  setContentView(root);
- }
- private EditText field(String hint,boolean secret){
-  EditText e=new EditText(this);e.setHint(hint);e.setSingleLine(true);
-  if(secret)e.setInputType(129);
-  root.addView(e);return e;
- }
- private void showLogin(){
-  base("BikesKart Inspector");TextView subtitle=new TextView(this);subtitle.setText("Inspector sign in · Admin-created accounts only");root.addView(subtitle);
-  EditText email=field("Email",false),password=field("Password",true);
-  Button signIn=new Button(this);signIn.setText("Sign in");root.addView(signIn);
-  TextView error=new TextView(this);root.addView(error);
-  signIn.setOnClickListener(v->{
-   signIn.setEnabled(false);error.setText("Signing in…");
-   new Thread(()->{
-    try{
-     JSONObject body=new JSONObject();body.put("email",email.getText().toString().trim());body.put("password",password.getText().toString());
-     HttpURLConnection c=(HttpURLConnection)new URL(BuildConfig.API_BASE_URL+"login").openConnection();
-     c.setRequestMethod("POST");c.setConnectTimeout(12000);c.setReadTimeout(12000);c.setDoOutput(true);c.setRequestProperty("Content-Type","application/json");
-     try(OutputStream out=c.getOutputStream()){out.write(body.toString().getBytes(StandardCharsets.UTF_8));}
-     int status=c.getResponseCode();String result=new String((status<400?c.getInputStream():c.getErrorStream()).readAllBytes(),StandardCharsets.UTF_8);
-     c.disconnect();
-     if(status!=200)throw new Exception("Login failed ("+status+"). Check account or server setup.");
-     JSONObject json=new JSONObject(result);token=json.getString("accessToken");
-     runOnUiThread(this::showDashboard);
-    }catch(Exception e){runOnUiThread(()->{error.setText(e.getMessage());signIn.setEnabled(true);});}
-   }).start();
+ private static final String PORTAL="https://auction.bikeskart.com/executive.html";
+ private static final int PICK_FILE=51;
+ private static final int PERMISSION_CODE=52;
+ private WebView web;
+ private ValueCallback<Uri[]> pendingFiles;
+ private PermissionRequest pendingWebPermission;
+ private GeolocationPermissions.Callback pendingGeo;
+ private String pendingGeoOrigin;
+ @Override public void onCreate(Bundle state){
+  super.onCreate(state);
+  web=new WebView(this);setContentView(web);
+  WebSettings settings=web.getSettings();
+  settings.setJavaScriptEnabled(true);
+  settings.setDomStorageEnabled(true);
+  settings.setMediaPlaybackRequiresUserGesture(true);
+  settings.setAllowFileAccess(false);
+  settings.setAllowContentAccess(true);
+  CookieManager.getInstance().setAcceptCookie(true);
+  CookieManager.getInstance().setAcceptThirdPartyCookies(web,false);
+  web.setWebViewClient(new WebViewClient(){
+   @Override public boolean shouldOverrideUrlLoading(WebView view,WebResourceRequest request){
+    Uri uri=request.getUrl();
+    if("https".equals(uri.getScheme())&&"auction.bikeskart.com".equalsIgnoreCase(uri.getHost()))return false;
+    try{startActivity(new Intent(Intent.ACTION_VIEW,uri));}catch(Exception e){Toast.makeText(MainActivity.this,"Cannot open link",Toast.LENGTH_SHORT).show();}
+    return true;
+   }
   });
+  web.setWebChromeClient(new WebChromeClient(){
+   @Override public boolean onShowFileChooser(WebView view,ValueCallback<Uri[]> callback,FileChooserParams params){
+    if(pendingFiles!=null)pendingFiles.onReceiveValue(null);
+    pendingFiles=callback;
+    try{startActivityForResult(params.createIntent(),PICK_FILE);return true;}
+    catch(Exception e){pendingFiles=null;callback.onReceiveValue(null);return false;}
+   }
+   @Override public void onPermissionRequest(PermissionRequest request){
+    runOnUiThread(()->{
+     if(!"https://auction.bikeskart.com".equals(request.getOrigin().toString())){request.deny();return;}
+     boolean camera=false;
+     for(String resource:request.getResources())if(PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resource))camera=true;
+     if(!camera){request.deny();return;}
+     pendingWebPermission=request;
+     if(checkSelfPermission(Manifest.permission.CAMERA)==PackageManager.PERMISSION_GRANTED)grantCamera();
+     else requestPermissions(new String[]{Manifest.permission.CAMERA},PERMISSION_CODE);
+    });
+   }
+   @Override public void onGeolocationPermissionsShowPrompt(String origin,GeolocationPermissions.Callback callback){
+    if(!"https://auction.bikeskart.com".equals(origin)){callback.invoke(origin,false,false);return;}
+    pendingGeo=callback;pendingGeoOrigin=origin;
+    if(checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED)grantGeo();
+    else requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION},PERMISSION_CODE);
+   }
+  });
+  web.loadUrl(PORTAL);
  }
- private void showDashboard(){
-  base("Assigned vehicles");TextView status=new TextView(this);status.setText("Loading assignments…");root.addView(status);
-  Button logout=new Button(this);logout.setText("Sign out");root.addView(logout);logout.setOnClickListener(v->{token=null;showLogin();});
-  new Thread(()->{
-   try{
-    HttpURLConnection c=(HttpURLConnection)new URL(BuildConfig.API_BASE_URL+"assignments").openConnection();
-    c.setRequestProperty("Authorization","Bearer "+token);c.setConnectTimeout(12000);c.setReadTimeout(12000);
-    int code=c.getResponseCode();if(code!=200)throw new Exception("Could not load assignments ("+code+")");
-    JSONObject data=new JSONObject(new String(c.getInputStream().readAllBytes(),StandardCharsets.UTF_8));c.disconnect();
-    StringBuilder lines=new StringBuilder();org.json.JSONArray items=data.getJSONArray("assignments");
-    if(items.length()==0)lines.append("No vehicles assigned yet.");
-    for(int i=0;i<items.length();i++){JSONObject item=items.getJSONObject(i);lines.append("\n").append(item.optString("brand")).append(" ").append(item.optString("model")).append(" · ").append(item.optString("registrationNumber")).append("\nStatus: ").append(item.optString("status")).append("\n");}
-    runOnUiThread(()->status.setText(lines.toString()));
-   }catch(Exception e){runOnUiThread(()->status.setText(e.getMessage()));}
-  }).start();
+ private void grantCamera(){if(pendingWebPermission!=null){pendingWebPermission.grant(new String[]{PermissionRequest.RESOURCE_VIDEO_CAPTURE});pendingWebPermission=null;}}
+ private void grantGeo(){if(pendingGeo!=null){pendingGeo.invoke(pendingGeoOrigin,true,false);pendingGeo=null;pendingGeoOrigin=null;}}
+ @Override public void onRequestPermissionsResult(int code,String[] permissions,int[] results){
+  super.onRequestPermissionsResult(code,permissions,results);
+  if(code!=PERMISSION_CODE)return;
+  if(pendingWebPermission!=null){if(checkSelfPermission(Manifest.permission.CAMERA)==PackageManager.PERMISSION_GRANTED)grantCamera();else{pendingWebPermission.deny();pendingWebPermission=null;}}
+  if(pendingGeo!=null){if(checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED)grantGeo();else{pendingGeo.invoke(pendingGeoOrigin,false,false);pendingGeo=null;pendingGeoOrigin=null;}}
  }
+ @Override protected void onActivityResult(int request,int result,Intent data){
+  super.onActivityResult(request,result,data);
+  if(request==PICK_FILE&&pendingFiles!=null){pendingFiles.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(result,data));pendingFiles=null;}
+ }
+ @Override public void onBackPressed(){if(web.canGoBack())web.goBack();else super.onBackPressed();}
+ @Override protected void onPause(){CookieManager.getInstance().flush();super.onPause();}
+ @Override protected void onDestroy(){if(pendingFiles!=null)pendingFiles.onReceiveValue(null);web.destroy();super.onDestroy();}
 }
