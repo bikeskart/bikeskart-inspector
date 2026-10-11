@@ -42,8 +42,9 @@ public class MainActivity extends Activity {
    }
   });
   web.setWebChromeClient(new WebChromeClient(){
-   @Override public void onConsoleMessage(ConsoleMessage message){
+   @Override public boolean onConsoleMessage(ConsoleMessage message){
     if(message.messageLevel()==ConsoleMessage.MessageLevel.ERROR){android.util.Log.e("BikesKartWebView",message.message());}
+    return true;
    }
    @Override public boolean onShowFileChooser(WebView view,ValueCallback<Uri[]> callback,FileChooserParams params){
     if(pendingFiles!=null)pendingFiles.onReceiveValue(null);
