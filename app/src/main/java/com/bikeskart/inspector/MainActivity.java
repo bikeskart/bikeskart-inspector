@@ -28,7 +28,7 @@ public class MainActivity extends Activity {
   WebSettings settings=web.getSettings();
   settings.setJavaScriptEnabled(true);
   settings.setDomStorageEnabled(true);
-  settings.setMediaPlaybackRequiresUserGesture(true);
+  settings.setMediaPlaybackRequiresUserGesture(false);
   settings.setAllowFileAccess(false);
   settings.setAllowContentAccess(true);
   CookieManager.getInstance().setAcceptCookie(true);
@@ -42,6 +42,9 @@ public class MainActivity extends Activity {
    }
   });
   web.setWebChromeClient(new WebChromeClient(){
+   @Override public void onConsoleMessage(ConsoleMessage message){
+    if(message.messageLevel()==ConsoleMessage.MessageLevel.ERROR){android.util.Log.e("BikesKartWebView",message.message());}
+   }
    @Override public boolean onShowFileChooser(WebView view,ValueCallback<Uri[]> callback,FileChooserParams params){
     if(pendingFiles!=null)pendingFiles.onReceiveValue(null);
     pendingFiles=callback;
@@ -50,7 +53,7 @@ public class MainActivity extends Activity {
    }
    @Override public void onPermissionRequest(PermissionRequest request){
     runOnUiThread(()->{
-     if(!isPortalOrigin(request.getOrigin().toString())){request.deny();return;}
+     if(!isPortalOrigin(request.getOrigin().toString())){android.util.Log.w("BikesKartCamera","Rejected origin: "+request.getOrigin());request.deny();return;}
      boolean camera=false;
      for(String resource:request.getResources())if(PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resource))camera=true;
      if(!camera){request.deny();return;}
