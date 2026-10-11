@@ -17,6 +17,7 @@ public class MainActivity extends Activity {
  private static final int PICK_FILE=51;
  private static final int PERMISSION_CODE=52;
  private WebView web;
+ private boolean isPortalOrigin(String origin){try{Uri u=Uri.parse(origin);return "https".equalsIgnoreCase(u.getScheme())&&"auction.bikeskart.com".equalsIgnoreCase(u.getHost())&&(u.getPort()==-1||u.getPort()==443);}catch(Exception e){return false;}}
  private ValueCallback<Uri[]> pendingFiles;
  private PermissionRequest pendingWebPermission;
  private GeolocationPermissions.Callback pendingGeo;
@@ -49,7 +50,7 @@ public class MainActivity extends Activity {
    }
    @Override public void onPermissionRequest(PermissionRequest request){
     runOnUiThread(()->{
-     if(!"https://auction.bikeskart.com".equals(request.getOrigin().toString())){request.deny();return;}
+     if(!isPortalOrigin(request.getOrigin().toString())){request.deny();return;}
      boolean camera=false;
      for(String resource:request.getResources())if(PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resource))camera=true;
      if(!camera){request.deny();return;}
@@ -59,7 +60,7 @@ public class MainActivity extends Activity {
     });
    }
    @Override public void onGeolocationPermissionsShowPrompt(String origin,GeolocationPermissions.Callback callback){
-    if(!"https://auction.bikeskart.com".equals(origin)){callback.invoke(origin,false,false);return;}
+    if(!isPortalOrigin(origin)){callback.invoke(origin,false,false);return;}
     pendingGeo=callback;pendingGeoOrigin=origin;
     if(checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED)grantGeo();
     else requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION},PERMISSION_CODE);
